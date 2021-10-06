@@ -9,6 +9,10 @@ range = getattr(__builtins__, 'xrange', range)
 
 import numpy as np
 
+
+### import needed for multi dim coplexity av
+from sklearn import preprocessing
+
 from matrixprofile import core
 
 
@@ -159,7 +163,31 @@ def make_complexity_av(ts, window):
         raise ValueError('make_complexity_av expects ts to be array-like')
 
     if not core.is_one_dimensional(ts):
-        raise ValueError('make_complexity_av expects ts to be one-dimensional')
+        #raise ValueError('make_complexity_av expects ts to be one-dimensional')
+        ### Don't raise value error
+        ### Execute custom code for the multidimensional case
+        print("Making multi-dim av...")
+        scaled_ts = preprocessing.minmax_scale(ts)
+        ts_t = scaled_ts.T
+        
+        ts_len = ts_t.shape[1]
+        dims = ts_t.shape[0]
+        av = np.zeros(ts_len - window + 1)
+
+        for i in range(len(av)):
+            ce = 0
+            for j in range(0, dims):
+                ce += np.sum(np.diff(ts_t[j, i: i + window]) ** 2)
+            av[i] = np.sqrt(ce)
+
+        max_val, min_val = np.max(av), np.min(av)
+        if max_val == 0:
+            av = np.zeros(len(av))
+        else:
+            av = (av - min_val) / max_val
+        max_val, min_val = np.max(av), np.min(av)
+
+        return av
 
     if not isinstance(window, int):
         raise ValueError('make_complexity_av expects window to be an integer')

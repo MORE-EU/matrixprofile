@@ -22,6 +22,9 @@ from matplotlib.lines import Line2D
 
 from matrixprofile import core
 
+# Used by the custom function that visulizes multi-dim motifs
+import matplotlib.gridspec as gridspec
+
 
 def __combine(a, b):
     """
@@ -57,6 +60,45 @@ def is_visualizable(obj):
 
     """
     return core.is_mp_obj(obj) or core.is_pmp_obj(obj) or core.is_stats_obj(obj)
+
+def visualize_md(profile):
+    'Custom function to visualise multidimensional motifs'
+    """
+    Automatically creates plots for the provided data structure. In some cases
+    many plots are created. For example, when a MatrixProfile is passed with
+    corresponding motifs and discords, the matrix profile, discords and motifs
+    will be plotted.
+
+    Parameters
+    ----------
+    profile : dict_like
+        A MatrixProfile, Pan-MatrixProfile or Statistics data structure.
+
+    Returns
+    -------
+    list : figures
+        A list of matplotlib figures.
+
+    """
+    figures = []
+
+    if not is_visualizable(profile):
+        raise ValueError('MatrixProfile, Pan-MatrixProfile or Statistics data structure expected!')
+
+    # plot MP
+    if core.is_mp_obj(profile):
+        figures = __combine(figures, plot_mp_md(profile))
+
+        if 'cmp' in profile and len(profile['cmp']) > 0:
+            figures = __combine(figures, plot_cmp_mp(profile))
+
+        if 'av' in profile and len(profile['av']) > 0:
+            figures = __combine(figures, plot_av_mp(profile))
+
+        if 'motifs' in profile and len(profile['motifs']) > 0:
+            figures = __combine(figures, plot_motifs_mp_md(profile))
+
+    return figures
 
 
 def visualize(profile):
@@ -261,6 +303,40 @@ def plot_mp(profile):
 
     fig.tight_layout()
 
+    return fig
+
+
+def plot_mp_md(profile):
+    
+    # Custom counterpart of plot_mp that plots multidimensional matrix profile
+    # the mp given is assumed to be the one that is created considering all variables in ts
+    # only plots the dataset and MP
+    # does not support 'lmp', 'rmp' and other profile fields
+    # Assumes that 'profile' will always contain data and mp attributes
+    
+    data = profile.get('data', None)
+    ts = None
+    query = None
+    if data:
+        ts = data.get('ts', None)
+        ts_t = ts.T
+
+    mp = profile.get('mp', None)
+    w = profile.get('w', None)
+    if not isinstance(w, int):
+        raise ValueError("Expecting window size!")
+   
+    dims = ts_t.shape[0]
+    fig, axs = plt.subplots(dims + 1, sharex=True, gridspec_kw={'hspace': 0}, figsize=(30, 20))
+    for k in range(dims):
+        dim_name = f'dim: {k}'
+        axs[k].set_ylabel(dim_name, fontsize='12')
+        axs[k].plot(ts_t[k, :])
+        axs[k].set_xlabel('Time', fontsize='12')
+        
+    axs[-1].set_ylabel('Multidimensional MP', fontsize='12')
+    axs[-1].plot(mp, c='orange')
+    fig.tight_layout()
     return fig
 
 
@@ -511,6 +587,91 @@ def plot_motifs_mp(profile):
 
     figures.append(fig)
 
+    return figures
+
+
+def plot_motifs_mp_md(profile):
+    # Custom counterpart of plot_motifs_mp that works for multi dimensional motifs
+    
+    motifs = profile['motifs']
+    num_motifs = len(motifs)
+    window = profile['w']
+    data = profile.get('data', None)
+    if data:
+        ts = data.get('ts', None)
+        ts_t = ts.T
+
+    dims = ts_t.shape[0]
+    figures = []
+
+    fig = plt.figure(figsize=(50, 50))
+    outer = gridspec.GridSpec(num_motifs, 1, wspace=0.2, hspace=0.2)
+    motif_no = 0
+    for i in range(num_motifs):
+        curr_motif = motifs[motif_no]['motifs']
+        axes = np.empty(shape=(dims, 2), dtype=object)
+        inner = gridspec.GridSpecFromSubplotSpec(dims, 2,
+                        subplot_spec=outer[i], wspace=0.1, hspace=0.8)
+
+        for j in range(dims):
+            for k in range(2):
+                ax = plt.Subplot(fig, inner[j, k], sharex=axes[0][0], sharey=axes[0][0])
+                if j == 0:
+                    ax.set_title(f'Index start: {curr_motif[0]}')
+                    if k > 0:
+                        ax.set_title(f'Index start: {curr_motif[1]}')
+                if k > 0:
+                    ax.plot(ts_t[j, curr_motif[1]:curr_motif[1] + window])
+                    ax.set_yticklabels([])
+                else:
+                    ax.plot(ts_t[j, curr_motif[0]:curr_motif[0] + window])
+                    ax.set_ylabel(f'Motif: {motif_no + 1} (dim:{j+1})', fontsize = 10, rotation=0, labelpad=60)
+                if j != dims - 1:
+                    ax.set_xticklabels([])
+                fig.add_subplot(ax)
+        motif_no += 1
+
+
+    fig.tight_layout()
+    figures.append(fig)
+
+    fig = plt.figure(figsize=(50, 50))
+    outer = gridspec.GridSpec(num_motifs, 1, wspace=0.2, hspace=0.2)
+    motif_no = 0
+    for i in range(num_motifs):
+        curr_motif = motifs[motif_no]['motifs']
+        curr_nns = motifs[motif_no]['neighbors']
+        axes = np.empty(shape=(dims, 1), dtype=object)
+        inner = gridspec.GridSpecFromSubplotSpec(dims, 2,
+                        subplot_spec=outer[i], wspace=0.1, hspace=1)
+
+        for j in range(dims):
+            for k in range(1):
+                ax = plt.Subplot(fig, inner[j, k], sharex=axes[0][0], sharey=axes[0][0])
+                if j == 0:
+                    ax.set_title(f'Motif : {motif_no + 1}')
+                ax.plot(ts_t[j, :])
+                curr_m_idx = np.arange(curr_motif[0], curr_motif[0] + window)
+                ax.plot(curr_m_idx, ts_t[j, curr_motif[0]:curr_motif[0] + window], c='red')
+                curr_m_idx = np.arange(curr_motif[1], curr_motif[1] + window)
+                ax.plot(curr_m_idx, ts_t[j, curr_motif[1]:curr_motif[1] + window], c='red')
+                ax.set_ylabel(f'dim:{j+1}', fontsize = 10, rotation=0, labelpad=60)
+                for nn_idx in curr_nns:
+                    curr_nn_idx = np.arange(nn_idx, nn_idx + window)
+                    ax.plot(curr_nn_idx, ts_t[j, nn_idx:nn_idx + window], c='black')
+                if j != dims - 1:
+                    ax.set_xticklabels([])
+                fig.add_subplot(ax)
+            lines = [
+                Line2D([0], [0], color='C0'),
+                Line2D([0], [0], color='red'),
+                Line2D([0], [0], color='black')
+            ]
+            ax.legend(lines, ['Data', 'Motif', 'Neighbor'], bbox_to_anchor=(1.05, 1))
+        motif_no += 1
+
+    fig.tight_layout()
+    figures.append(fig)
     return figures
 
 
